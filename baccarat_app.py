@@ -2,63 +2,103 @@ import random
 import streamlit as st
 
 # =========================
-# 1. 頁面設定 (針對 MacBook Retina 顯示優化)
+# 1. 頁面設定 (RWD 響應式優化)
 # =========================
 st.set_page_config(page_title="AI 預測軸穩定版", layout="wide")
 
+# 強化的 CSS 控制
 st.markdown("""
 <style>
-    .axis-box { font-size:40px; font-weight:900; text-align:center; padding:25px; border-radius:20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+    /* 全螢幕背景與字體 */
+    .main { background-color: #0e1117; }
+    
+    /* 預測軸：字體大小隨螢幕寬度調整 */
+    .axis-box { 
+        font-size: clamp(24px, 5vw, 45px); 
+        font-weight: 900; 
+        text-align: center; 
+        padding: 20px; 
+        border-radius: 20px; 
+        box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        margin-bottom: 20px;
+    }
+
+    /* 數據面板卡片化 */
+    div[data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        padding: 10px !important;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* 按鈕美化：高度增加方便手機點擊 */
+    .stButton > button {
+        height: 60px !important;
+        font-size: 18px !important;
+        font-weight: bold !important;
+        border-radius: 12px !important;
+        margin-bottom: 10px;
+    }
+
+    /* 局數標籤 */
     .round-info { 
         background: #262730; 
-        color: #ffffff; 
-        padding: 10px 20px; 
+        color: #00ffcc; 
+        padding: 12px; 
         border-radius: 10px; 
-        font-size: 20px; 
-        font-weight: bold; 
-        border: 1px solid #444;
-        display: inline-block;
+        font-size: 18px; 
+        text-align: center;
+        width: 100%;
         margin-bottom: 15px;
+        border: 1px solid #444;
+    }
+
+    /* 珠盤路容器：支援手機橫向滑動 */
+    .bead-container {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding: 10px 0;
+        gap: 8px;
+    }
+    .bead-column {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        flex: 0 0 auto;
     }
     .bead {
-        width: 42px; height: 42px; line-height: 42px;
+        width: 35px; height: 35px; line-height: 35px;
         border-radius: 50%; text-align: center; font-weight: bold;
-        margin: 5px auto; color: white;
-        box-shadow: inset -2px -2px 4px rgba(0,0,0,0.2);
+        color: white; font-size: 14px;
+        box-shadow: inset -2px -2px 4px rgba(0,0,0,0.3);
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 百家樂預測軸系統 Pro (穩定運算版)")
+st.title("🎯 AI 百家樂預測軸 Pro")
 
 # =========================
 # 2. 狀態初始化
 # =========================
 if "history" not in st.session_state:
     st.session_state.history = []
-
 if "shoe" not in st.session_state:
-    # 初始化 8 副牌
     deck = [1,2,3,4,5,6,7,8,9,0,0,0,0] * 4
     st.session_state.shoe = deck * 8
     random.shuffle(st.session_state.shoe)
 
-# 工具：結果顏色
 def result_color(v):
     return "#1c83e1" if v == "閒" else "#ff4b4b" if v == "莊" else "#28a745"
 
 # =========================
-# 3. 穩定版 Monte Carlo 勝率計算
+# 3. 穩定運算邏輯
 # =========================
 def get_stable_monte_carlo(sim=10000):
     shoe = st.session_state.shoe
-    if len(shoe) < 12:
-        return 0.493, 0.507
-
-    # 重要：使用目前的歷史長度作為隨機種子，確保只要局數不變，預測結果就不會變
+    if len(shoe) < 12: return 0.493, 0.507
     seed_val = len(st.session_state.history)
     rng = random.Random(seed_val)
-    
     p_win, b_win = 0, 0
     for _ in range(sim):
         s = rng.sample(shoe, 6)
@@ -68,97 +108,85 @@ def get_stable_monte_carlo(sim=10000):
         if bv <= 5: bv = (bv + s[5]) % 10
         if pv > bv: p_win += 1
         elif bv > pv: b_win += 1
-
     total = p_win + b_win
     return (0.5, 0.5) if total == 0 else (p_win / total, b_win / total)
 
-# =========================
-# 4. 指標與物理量計算
-# =========================
 p_prob, b_prob = get_stable_monte_carlo()
 delta = (b_prob - p_prob) * 100
-
-# 真實記數 (EOR)
 EOR = {1:-0.6, 2:-0.4, 3:-0.7, 4:-1.2, 5:0.8, 6:0.6, 7:0.3, 8:0.1, 9:-0.1, 0:0.2}
 score = sum(EOR.get(c, 0) for c in st.session_state.shoe)
 tc = score / max(len(st.session_state.shoe) / 52, 0.5)
 
-# 模擬物理量 (使用固定算法避免跳動)
-# 這裡將 delta 與 TC 進行標準化權重計算
 d_norm = max(min(delta / 2, 1), -1)
 tc_norm = max(min(tc / 3, 1), -1)
-axis_score = d_norm * 0.6 + tc_norm * 0.4 # 簡化權重，確保反應靈敏且穩定
+axis_score = d_norm * 0.6 + tc_norm * 0.4
 axis_0_10 = round((axis_score + 1) * 5, 1)
 
 # =========================
-# 5. 顯示預測軸
+# 4. 預測軸顯示
 # =========================
-if axis_0_10 >= 6.5:
-    label, color = "強烈偏向【莊】", "#ff4b4b"
-elif axis_0_10 >= 5.5:
-    label, color = "微幅偏向【莊】", "#ff4b4b"
-elif axis_0_10 <= 3.5:
-    label, color = "強烈偏向【閒】", "#1c83e1"
-elif axis_0_10 <= 4.5:
-    label, color = "微幅偏向【閒】", "#1c83e1"
-else:
-    label, color = "中性觀望", "#555"
+if axis_0_10 >= 6.5: label, color = "強烈偏向【莊】", "#ff4b4b"
+elif axis_0_10 >= 5.5: label, color = "微幅偏向【莊】", "#ff4b4b"
+elif axis_0_10 <= 3.5: label, color = "強烈偏向【閒】", "#1c83e1"
+elif axis_0_10 <= 4.5: label, color = "微幅偏向【閒】", "#1c83e1"
+else: label, color = "中性觀望", "#555"
 
 st.markdown(
     f"<div class='axis-box' style='background:{color}; color:white;'>"
-    f"預測軸分數：{axis_0_10} / 10<br><span style='font-size:24px;'>{label}</span></div>",
+    f"預測軸：{axis_0_10} / 10<br><span style='font-size:0.6em; opacity:0.9;'>{label}</span></div>",
     unsafe_allow_html=True
 )
 
 # =========================
-# 6. 數據面板
+# 5. 數據面板 (手機會自動變 2x2 或 1 欄)
 # =========================
-st.write("### 數據監控")
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("閒預估勝率", f"{p_prob*100:.2f}%")
-c2.metric("莊預估勝率", f"{b_prob*100:.2f}%")
-c3.metric("Δ 勝率差", f"{delta:+.2f}%")
-c4.metric("TC 真實記數", f"{tc:.2f}")
-c5.metric("系統狀態", "穩定監控中")
+c1, c2, c3 = st.columns([1,1,1])
+c1.metric("閒勝率", f"{p_prob*100:.1f}%")
+c2.metric("莊勝率", f"{b_prob*100:.1f}%")
+c3.metric("TC 數值", f"{tc:.2f}")
 
 # =========================
-# 7. 操作按鈕
+# 6. 操作區 (重點優化)
 # =========================
-st.divider()
+st.write("")
 total_rounds = len(st.session_state.history)
-st.markdown(f"<div class='round-info'>目前局數：第 {total_rounds} 局</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='round-info'>目前進度：第 {total_rounds} 局</div>", unsafe_allow_html=True)
 
-b1, b2, b3, b4, b5 = st.columns(5)
+# 手機版建議按鈕排列
+col1, col2, col3 = st.columns(3)
+with col1: st.button("🔵 閒", on_click=lambda: record_result("閒"), use_container_width=True)
+with col2: st.button("🔴 莊", on_click=lambda: record_result("莊"), use_container_width=True)
+with col3: st.button("🟢 和", on_click=lambda: record_result("和"), use_container_width=True)
+
+col4, col5 = st.columns(2)
+with col4: st.button("↩️ 回退", on_click=lambda: undo_step(), use_container_width=True)
+with col5: st.button("🔄 洗牌", on_click=lambda: st.session_state.clear(), use_container_width=True)
 
 def record_result(r):
     st.session_state.history.append(r)
-    for _ in range(6):
-        if st.session_state.shoe:
-            st.session_state.shoe.pop()
-    st.rerun()
+    for _ in range(6): 
+        if st.session_state.shoe: st.session_state.shoe.pop()
 
 def undo_step():
     if st.session_state.history:
         st.session_state.history.pop()
-        # 回退時補回牌堆 (假設一局用 6 張)
-        deck = [1,2,3,4,5,6,7,8,9,0,0,0,0]
-        for _ in range(6):
-            st.session_state.shoe.append(random.choice(deck))
-        st.rerun()
-
-b1.button("🔵 紀錄【閒】", on_click=lambda: record_result("閒"), use_container_width=True)
-b2.button("🔴 紀錄【莊】", on_click=lambda: record_result("莊"), use_container_width=True)
-b3.button("🟢 紀錄【和】", on_click=lambda: record_result("和"), use_container_width=True)
-b4.button("↩️ 回退一步", on_click=undo_step, use_container_width=True)
-b5.button("🔄 重新洗牌", on_click=lambda: st.session_state.clear(), use_container_width=True)
+        for _ in range(6): st.session_state.shoe.append(random.randint(0,9))
 
 # =========================
-# 8. 珠盤路顯示
+# 7. 珠盤路 (可橫向捲動版)
 # =========================
 if st.session_state.history:
-    st.write("### 珠盤路趨勢")
-    rows = [st.session_state.history[i:i+6] for i in range(0, len(st.session_state.history), 6)]
-    for r in rows:
-        cols = st.columns(12)
-        for i, v in enumerate(r):
-            cols[i].markdown(f"<div class='bead' style='background:{result_color(v)};'>{v}</div>", unsafe_allow_html=True)
+    st.write("### 歷史趨勢 (可橫向滑動)")
+    # 將歷史紀錄每 6 個切成一組（一列）
+    history = st.session_state.history
+    columns_data = [history[i:i+6] for i in range(0, len(history), 6)]
+    
+    html_beads = '<div class="bead-container">'
+    for col in columns_data:
+        html_beads += '<div class="bead-column">'
+        for val in col:
+            html_beads += f'<div class="bead" style="background:{result_color(val)};">{val}</div>'
+        html_beads += '</div>'
+    html_beads += '</div>'
+    
+    st.markdown(html_beads, unsafe_allow_html=True)
